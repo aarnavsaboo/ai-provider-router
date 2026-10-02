@@ -1,0 +1,17 @@
+{
+  "name": "ai-provider-router",
+  "version": "0.1.0",
+  "description": "A tiny provider-agnostic routing layer for LLM APIs.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "author": "Aarnav Saboo",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
