@@ -1,17 +1,26 @@
 {
   "name": "ai-provider-router",
-  "version": "0.1.0",
-  "description": "A tiny provider-agnostic routing layer for LLM APIs.",
+  "version": "0.2.0",
+  "description": "Task-based LLM routing with provider adapters, explicit failover and observable inference.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": {"node": ">=20"},
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "demo": "npm run build && node examples/offline.mjs"
   },
   "author": "Aarnav Saboo",
   "license": "MIT",
-  "devDependencies": {
-    "typescript": "^5.6.3"
-  }
+  "repository": {"type": "git", "url": "https://github.com/aarnavsaboo/ai-provider-router.git"},
+  "devDependencies": {"typescript": "^5.6.3"}
 }
