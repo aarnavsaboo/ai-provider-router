@@ -1,10 +1,10 @@
 # AI Provider Router
 
-A small inference-routing layer for local and OpenAI-compatible language-model runtimes.
+A typed inference control plane for local and OpenAI-compatible language-model runtimes.
 
-The package keeps provider protocols, task routing, retries, timeouts, fallback order, bounded batch execution and run metrics outside application code. It is useful for experiments where the same workload is moved between a local model server and another compatible endpoint without rewriting the rest of the pipeline.
+The package separates provider protocols, routing policy, retries, timeouts, fallback chains, bounded batch execution and runtime observations from application code. The same workload can move across heterogeneous model servers without coupling the application layer to a provider SDK.
 
-The emphasis is explicit behaviour rather than a large framework abstraction.
+Routing decisions and attempt metadata remain explicit so model selection, failure handling and workload behavior can be inspected independently.
 
 ## Supported protocols
 
