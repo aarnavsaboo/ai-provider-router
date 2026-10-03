@@ -1,88 +1,125 @@
 # AI Provider Router
 
-**An inspectable inference-routing layer for language-model integrations.**
+A small inference-routing layer for local and OpenAI-compatible language-model runtimes.
 
-Keep provider protocols, task routing and failure handling out of the rest of an AI pipeline. The router normalizes text completions from OpenAI-compatible endpoints and Ollama, with explicit fallback routes, bounded retries, per-attempt timeouts, cancellation and process-local circuit breaking.
+The package keeps provider protocols, task routing, retries, timeouts, fallback order, bounded batch execution and run metrics outside application code. It is useful for experiments where the same workload is moved between a local model server and another compatible endpoint without rewriting the rest of the pipeline.
 
-Maintained by **Aarnav Saboo**. TypeScript, Node.js 20+, MIT. No runtime package dependencies.
+The emphasis is explicit behaviour rather than a large framework abstraction.
 
-## Run without an API key
+## Supported protocols
 
-```bash
-npm install
-npm test
-npm run demo
-```
+- OpenAI-compatible chat-completions endpoints
+- Ollama chat endpoints
 
-The demo injects a mock transport, simulates a primary-provider failure and uses a configured backup. Nothing is sent to a real model. Tests also use mocked responses; they are not live-provider compatibility certification.
+Adapters normalize provider output into the same completion shape.
 
-## Route a task
+## Example
 
 ```typescript
-import { AIProviderRouter } from "./dist/index.js";
+import { AIProviderRouter } from "ai-provider-router";
 
 const router = new AIProviderRouter()
   .addProvider({
-    name: "local",
+    name: "small-local",
     kind: "ollama",
-    endpoint: "http://localhost:11434/api/chat",
-    model: "your-installed-model",
+    endpoint: "http://127.0.0.1:11434/api/chat",
+    model: "qwen3:4b",
     timeoutMs: 60_000,
   })
-  .addRule({ when: task => task === "summarize", provider: "local" });
+  .addProvider({
+    name: "larger-local",
+    kind: "openai-compatible",
+    endpoint: "http://127.0.0.1:1234/v1/chat/completions",
+    model: "local-model",
+    timeoutMs: 60_000,
+  })
+  .addRule({
+    when: task => task === "summary",
+    provider: "small-local",
+    fallbacks: ["larger-local"],
+  });
 
-const result = await router.chat("summarize", [
-  { role: "user", content: "Summarize these retrieved passages: ..." },
-], { maxTokens: 250 });
-
-console.log(result.text, result.usage, result.latencyMs);
+const result = await router.chat(
+  "summary",
+  [{ role: "user", content: "Summarize the retrieved passages." }],
+  { maxTokens: 160 },
+);
 ```
 
-A local Ollama server and an installed model are required for that example. The separate `examples/local-model.mjs` script reads `AI_MODEL` and optional `AI_ENDPOINT`/`AI_API_KEY` environment variables.
+## Routing and execution
 
-## Explicit provider boundaries
+Routes are explicit and evaluated in registration order.
 
-`kind: "openai-compatible"` sends a non-streaming chat-completions request to the exact endpoint supplied. It defaults to `max_tokens`; set `outputTokenField: "max_completion_tokens"` for endpoints requiring that field. Model-specific capabilities still vary. An OpenAI-compatible protocol is not a promise that every hosted provider accepts the same options.
+Each provider can configure:
 
-`kind: "ollama"` maps the generation limit to `options.num_predict` and normalizes Ollama's usage fields. Neither adapter supports tool calls or multimodal messages in this version.
+- model
+- endpoint
+- protocol adapter
+- timeout
+- retry count
+- extra headers
+- output token field
 
-## Failure handling
+A route can define a primary provider and ordered fallbacks.
+
+Transient transport errors and selected HTTP responses can retry before the next configured provider is attempted. Each attempt emits timing metadata through the event callback.
+
+## Local workload runner
+
+The repository also contains utilities for repeatable workload experiments.
 
 ```typescript
-router.addProvider({
-  name: "backup", endpoint: "https://your-provider.example/v1/chat/completions",
-  model: "your-model", apiKey: process.env.AI_API_KEY, retries: 1,
+import { runWorkload, summarizeWorkload } from "ai-provider-router";
+
+const records = await runWorkload(router, jobs, {
+  concurrency: 4,
+  repeats: 3,
 });
-router.addRule({
-  when: task => task === "extract",
-  provider: "local",
-  fallbacks: ["backup"],
-});
+
+console.log(summarizeWorkload(records));
 ```
 
-Fallbacks are opt-in. Without a matching rule, only the first registered provider is used. Invalid request/response shapes and non-transient HTTP errors stop immediately. Transport failures, timeouts and HTTP 408/429/500/502/503/504 can retry and then follow an explicit fallback route.
+A workload record keeps:
 
-Provider `retries` means additional attempts, defaults to zero and is capped at five. Backoff is exponential and capped at five seconds. It does not currently honor `Retry-After`. A timeout is per attempt, not a whole-route deadline. Retrying an inference call can duplicate provider work and cost.
+- task name
+- provider/model selected
+- total router latency
+- attempt count
+- input/output token counts when available
+- success/failure
+- repetition index
 
-## Cancellation, batches and observability
+This makes it possible to compare route choices and concurrency without coupling the benchmark harness to a provider SDK.
+
+## Bounded batches
 
 ```typescript
-const controller = new AbortController();
-const result = await router.chat("extract", messages, { signal: controller.signal });
-const batch = await router.batch(jobs, 3); // at most three jobs running at once
-console.log(router.health(), router.statistics());
+const batch = await router.batch(jobs, 4);
 ```
 
-`batch` keeps input order and returns a success/error record per job. Each job owns its retry/fallback sequence. This limits concurrent jobs; it is not a distributed rate limiter.
+Input order is preserved in the returned results. Each job owns its own retry/fallback sequence.
 
-An `onEvent` callback receives provider, phase, attempt, duration and error code—never prompt or completion text. Counters and circuit state are process-local and reset when the router is recreated. Observer exceptions do not change model results.
+The concurrency bound limits active jobs in the current process. It is not a distributed scheduler or global rate limiter.
 
-## Design and scope
+## Runtime observations
 
-The circuit opens after a configurable number of exhausted, transiently failing requests and allows calls again after a cooldown. It is a lightweight local policy, not a coordinated half-open probe across workers. See [design notes](docs/design.md) for the exact semantics.
+`statistics()` exposes per-provider attempt/success/failure/skip counters.
 
-There is no model training, automatic prompt rewriting, embedding generation, response cache or streaming in this release. That keeps the boundary focused: a task and text messages in; a normalized completion and execution metadata out.
+`health()` exposes current consecutive-failure and cooldown state.
 
-### Migration from 0.1
+The workload helpers add percentile summaries on top without changing the router itself.
 
-`addProvider`, `addRule`, `pick` and `chat` remain available. `chat` now returns a normalized `Completion` instead of the raw provider JSON. Use `result.text` and `result.usage`. Rules are evaluated in registration order; the first match wins.
+## Repository layout
+
+- `src/adapters.ts` — request/response protocol adapters
+- `src/router.ts` — route selection, retries, timeouts and batches
+- `src/types.ts` — public data types
+- `src/workload.ts` — repeatable batch workload runner
+- `src/stats.ts` — latency/token summary helpers
+- `examples/` — offline/local examples
+- `docs/` — routing and local runtime notes
+- `tests/` — deterministic tests with mocked transports
+
+No provider account is required for the included tests.
+
+Maintained by **Aarnav Saboo**.

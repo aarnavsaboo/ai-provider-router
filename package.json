@@ -1,7 +1,7 @@
 {
   "name": "ai-provider-router",
-  "version": "0.2.0",
-  "description": "Task-based LLM routing with provider adapters, explicit failover and observable inference.",
+  "version": "0.3.0",
+  "description": "Task-based routing for local and OpenAI-compatible language-model runtimes.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,6 +21,5 @@
   },
   "author": "Aarnav Saboo",
   "license": "MIT",
-  "repository": {"type": "git", "url": "https://github.com/aarnavsaboo/ai-provider-router.git"},
   "devDependencies": {"typescript": "^5.6.3"}
 }
